@@ -142,8 +142,8 @@ func (t *Transaction) SetProperties(props iceberg.Properties) error {
 	return nil
 }
 
-func (t *Transaction) UpdateSpec() *UpdateSpec {
-	return NewUpdateSpec(t)
+func (t *Transaction) UpdateSpec(caseSensitive bool) *UpdateSpec {
+	return NewUpdateSpec(t, caseSensitive)
 }
 
 func (t *Transaction) AppendTable(ctx context.Context, tbl arrow.Table, batchSize int64, snapshotProps iceberg.Properties) error {

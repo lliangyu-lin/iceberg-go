@@ -17,22 +17,56 @@
 
 package table
 
+import (
+	"fmt"
+	"github.com/apache/iceberg-go"
+)
+
 type UpdateSpec struct {
-	txn *Transaction
+	txn                   *Transaction
+	caseSensitive         bool
+	transformToField      map[transformKey]iceberg.PartitionField
+	transformToAddedField map[int]string
 }
 
-func NewUpdateSpec(t *Transaction) *UpdateSpec {
+func NewUpdateSpec(t *Transaction, caseSensitive bool) *UpdateSpec {
+	transformToField := make(map[transformKey]iceberg.PartitionField)
 	return &UpdateSpec{
-		txn: t,
+		txn:                   t,
+		caseSensitive:         caseSensitive,
+		transformToField:      transformToField,
+		transformToAddedField: make(map[int]string),
 	}
 }
 
-func (us *UpdateSpec) AddField() {
+type transformKey struct {
+	FieldID   int
+	Transform string
+}
+
+func (us *UpdateSpec) AddField(sourceColName string, transform iceberg.Transform) (*UpdateSpec, error) {
 	// Finds the column in the schema and binds it with case sensitivity.
+	ref := iceberg.Reference(sourceColName)
+	boundTerm, err := ref.Bind(us.txn.tbl.Schema(), us.caseSensitive)
+	if err != nil {
+		return nil, err
+	}
 
 	// Validate the transform
+	outputType := boundTerm.Type()
+	if !transform.CanTransform(outputType) {
+		return nil, fmt.Errorf("{%s} cannot transform {%s} values from {%s}", transform.String(), outputType.String(), boundTerm.Ref().Field().Name)
+	}
 
 	// Check for duplicate transform on same column
+	key := &transformKey{
+		FieldID:   boundTerm.Ref().Field().ID,
+		Transform: transform.String(),
+	}
+	existingPartitionField, exists := us.transformToField[*key]
+	if exists && us.isDuplicatePartition(transform, existingPartitionField) {
+		return nil, fmt.Errorf("duplicate partition field for %s=%v, %v already exists", ref.String(), ref, existingPartitionField)
+	}
 
 	// Check if this transform was already added
 
@@ -43,4 +77,8 @@ func (us *UpdateSpec) AddField() {
 	// If name matches an existing field, rename it (if VOID)
 
 	// Register the new field
+}
+
+func (us *UpdateSpec) isDuplicatePartition(transform iceberg.Transform, partitionField iceberg.PartitionField) bool {
+	return false
 }
