@@ -92,7 +92,7 @@ func (s *SparkIntegrationTestSuite) TestSetProperties() {
 	_, err = tx.Commit(s.ctx)
 	s.Require().NoError(err)
 
-	err = recipe.ExecuteSpark(s.T(), s.stack, "./validation.py", "--test", "testSetProperties")
+	err = recipe.ExecuteSpark(s.T(), "./validation.py", "--test", "TestSetProperties")
 	s.Require().NoError(err)
 }
 
@@ -137,7 +137,7 @@ func (s *SparkIntegrationTestSuite) TestAddFile() {
 	tbl, err = tx.Commit(s.ctx)
 	s.Require().NoError(err)
 
-	err = recipe.ExecuteSpark(s.T(), s.stack, "./validation.py", "--test", "TestAddedFile")
+	err = recipe.ExecuteSpark(s.T(), "./validation.py", "--test", "TestAddedFile")
 	s.Require().NoError(err)
 }
 
@@ -230,6 +230,7 @@ func (s *SparkIntegrationTestSuite) TestDifferentDataTypes() {
 		 ]`,
 	})
 	s.Require().NoError(err)
+	defer arrTable.Release()
 
 	tbl, err := s.cat.CreateTable(s.ctx, catalog.ToIdentifier("default", "go_test_different_data_types"), icebergSchema)
 	s.Require().NoError(err)
@@ -241,7 +242,7 @@ func (s *SparkIntegrationTestSuite) TestDifferentDataTypes() {
 	_, err = tx.Commit(s.ctx)
 	s.Require().NoError(err)
 
-	err = recipe.ExecuteSpark(s.T(), s.stack, "./validation.py", "--test", "TestReadDifferentDataTypes")
+	err = recipe.ExecuteSpark(s.T(), "./validation.py", "--test", "TestReadDifferentDataTypes")
 	s.Require().NoError(err)
 }
 
@@ -253,7 +254,7 @@ func (s *SparkIntegrationTestSuite) TestUpdateSpec() {
 	)
 
 	partitionSpec := iceberg.NewPartitionSpec(
-		iceberg.PartitionField{SourceID: 3, FieldID: 1000, Transform: iceberg.TruncateTransform{Width: 5}, Name: "baz_truncate"},
+		iceberg.PartitionField{SourceID: 2, FieldID: 1000, Transform: iceberg.TruncateTransform{Width: 5}, Name: "bar_truncate"},
 	)
 
 	tbl, err := s.cat.CreateTable(
@@ -271,7 +272,7 @@ func (s *SparkIntegrationTestSuite) TestUpdateSpec() {
 	s.Require().NoError(err)
 	_, err = tx.Commit(s.ctx)
 
-	err = recipe.ExecuteSpark(s.T(), s.stack, "./validation.py", "--test", "TestReadSpecUpdate")
+	err = recipe.ExecuteSpark(s.T(), "./validation.py", "--test", "TestReadSpecUpdate")
 	s.Require().NoError(err)
 }
 
