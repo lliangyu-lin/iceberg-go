@@ -47,7 +47,7 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Start docker
-        run: |
+        run: |          
           docker compose -f internal/recipe/docker-compose.yml up -d
           sleep 10
       - name: Provision Tables
