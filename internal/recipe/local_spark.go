@@ -20,9 +20,9 @@ package recipe
 import (
 	"bytes"
 	"fmt"
+	"github.com/docker/docker/api/types/filters"
 	"io"
 	"os"
-	"strings"
 	"testing"
 
 	_ "embed"
@@ -81,32 +81,32 @@ func ExecuteSpark(t *testing.T, scriptPath string, args ...string) (string, erro
 		}
 	}(cli)
 
-	containers, err := cli.ContainerList(t.Context(), container.ListOptions{
-		All: true,
-	})
-
-	var sparkContainerID string
-	for _, c := range containers {
-		for _, name := range c.Names {
-			fmt.Printf("container names: %s\n", name)
-			if strings.Contains(name, sparkContainer) {
-				sparkContainerID = c.ID
-				break
-			}
-		}
-		if sparkContainerID != "" {
-			break
-		}
-	}
-
-	//filter := filters.NewArgs()
-	//filter.Add("name", sparkContainer)
 	//containers, err := cli.ContainerList(t.Context(), container.ListOptions{
-	//	Filters: filter,
+	//	All: true,
 	//})
-	//if len(containers) != 1 {
-	//	return "", fmt.Errorf("unable to find container %s", sparkContainer)
+	//
+	//var sparkContainerID string
+	//for _, c := range containers {
+	//	for _, name := range c.Names {
+	//		fmt.Printf("container names: %s\n", name)
+	//		if strings.Contains(name, sparkContainer) {
+	//			sparkContainerID = c.ID
+	//			break
+	//		}
+	//	}
+	//	if sparkContainerID != "" {
+	//		break
+	//	}
 	//}
+
+	filter := filters.NewArgs()
+	filter.Add("name", "/spark-iceberg")
+	containers, err := cli.ContainerList(t.Context(), container.ListOptions{
+		Filters: filter,
+	})
+	if len(containers) != 1 {
+		return "", fmt.Errorf("unable to find container %s", sparkContainer)
+	}
 
 	sparkContainerId := containers[0].ID
 	response, err := cli.ContainerExecCreate(t.Context(), sparkContainerId, container.ExecOptions{
