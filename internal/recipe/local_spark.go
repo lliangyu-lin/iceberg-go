@@ -22,12 +22,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"testing"
 
 	_ "embed"
 
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 	"github.com/testcontainers/testcontainers-go/modules/compose"
 )
@@ -81,21 +81,24 @@ func ExecuteSpark(t *testing.T, scriptPath string, args ...string) (string, erro
 		}
 	}(cli)
 
-	filter := filters.NewArgs()
-	filter.Add("name", "/spark-iceberg")
 	containers, err := cli.ContainerList(t.Context(), container.ListOptions{
-		Filters: filter,
+		All: true,
 	})
 
-	if len(containers) != 1 {
-		return "", fmt.Errorf("unable to find container %s", sparkContainer)
-	}
-	if err != nil {
-		return "", err
+	var sparkContainerID string
+	for _, c := range containers {
+		for _, name := range c.Names {
+			if strings.Contains(name, sparkContainer) {
+				sparkContainerID = c.ID
+				break
+			}
+		}
+		if sparkContainerID != "" {
+			break
+		}
 	}
 
-	sparkContainerId := containers[0].ID
-	response, err := cli.ContainerExecCreate(t.Context(), sparkContainerId, container.ExecOptions{
+	response, err := cli.ContainerExecCreate(t.Context(), sparkContainerID, container.ExecOptions{
 		Cmd:          append([]string{"python", scriptPath}, args...),
 		AttachStdout: true,
 		AttachStderr: true,
