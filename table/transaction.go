@@ -57,6 +57,10 @@ func (s snapshotUpdate) mergeAppend() *snapshotProducer {
 	return newMergeAppendFilesProducer(OpAppend, s.txn, s.io, nil, s.snapshotProps)
 }
 
+func (s snapshotUpdate) delete() *snapshotProducer {
+	return newDeleteFilesProducer(OpDelete, s.txn, s.io, nil, s.snapshotProps)
+}
+
 type Transaction struct {
 	tbl  *Table
 	meta *MetadataBuilder
@@ -179,6 +183,24 @@ func (t *Transaction) Append(ctx context.Context, rdr array.RecordReader, snapsh
 	}
 
 	return t.apply(updates, reqs)
+}
+
+func (t *Transaction) Delete(ctx context.Context, deleteFilter iceberg.BooleanExpression, snapshotProps iceberg.Properties, caseSensitive bool) error {
+
+	if deleteMode := t.tbl.metadata.Properties().Get(DeleteMode, DeleteModeDefault); deleteMode == DeleteModeMergeOnRead {
+		fmt.Println("Merge on read is not yet supported, falling back to copy-on-write")
+	}
+
+	fs, err := t.tbl.fsF(ctx)
+	if err != nil {
+		return err
+	}
+
+	deleteSnapshot := t.updateSnapshot(fs, snapshotProps).delete()
+	df := deleteSnapshot.producerImpl.(*deleteFiles)
+	df.deleteByPredicate(deleteFilter, caseSensitive)
+
+	return nil
 }
 
 // ReplaceFiles is actually just an overwrite operation with multiple

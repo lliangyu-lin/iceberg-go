@@ -778,6 +778,58 @@ func (t *TableWritingTestSuite) TestAddFilesReferencedCurrentSnapshotIgnoreDupli
 	t.Equal([]int32{0, 0, 0}, deleted)
 }
 
+func (t *TableWritingTestSuite) TestDelete() {
+	ident := table.Identifier{"default", "unpartitioned_table_v" + strconv.Itoa(t.formatVersion)}
+	tbl := t.createTable(ident, t.formatVersion,
+		*iceberg.UnpartitionedSpec, t.tableSchema)
+
+	t.NotNil(tbl)
+
+	files := make([]string, 0)
+	for i := range 5 {
+		filePath := fmt.Sprintf("%s/unpartitioned/test-%d.parquet", t.location, i)
+		t.writeParquet(mustFS(t.T(), tbl).(iceio.WriteFileIO), filePath, t.arrTbl)
+		files = append(files, filePath)
+	}
+
+	tx := tbl.NewTransaction()
+	t.Require().NoError(tx.AddFiles(t.ctx, files, nil, false))
+
+	stagedTbl, err := tx.StagedTable()
+	t.Require().NoError(err)
+	t.NotNil(stagedTbl.NameMapping())
+
+	t.Equal(stagedTbl.CurrentSnapshot().Summary,
+		&table.Summary{
+			Operation: table.OpAppend,
+			Properties: iceberg.Properties{
+				"added-data-files":       "5",
+				"added-files-size":       "3600",
+				"added-records":          "5",
+				"total-data-files":       "5",
+				"total-delete-files":     "0",
+				"total-equality-deletes": "0",
+				"total-files-size":       "3600",
+				"total-position-deletes": "0",
+				"total-records":          "5",
+			},
+		})
+
+	scan, err := tx.Scan()
+	t.Require().NoError(err)
+
+	contents, err := scan.ToArrowTable(context.Background())
+	t.Require().NoError(err)
+	defer contents.Release()
+
+	t.EqualValues(5, contents.NumRows())
+
+	//deleteFilter := iceberg.BooleanExpression()
+
+	iceberg.EqualTo(iceberg.Reference("bar"), int32(1))
+	//tx.Delete(t.ctx)
+}
+
 type mockedCatalog struct{}
 
 func (m *mockedCatalog) LoadTable(ctx context.Context, ident table.Identifier, props iceberg.Properties) (*table.Table, error) {
@@ -1217,25 +1269,25 @@ func TestNullableStructRequiredField(t *testing.T) {
 	arrowSchema := arrow.NewSchema([]arrow.Field{
 		{
 			Name: "analytic", Type: arrow.StructOf(
-				arrow.Field{Name: "category", Type: arrow.BinaryTypes.String, Nullable: true},
-				arrow.Field{Name: "desc", Type: arrow.BinaryTypes.String, Nullable: true},
-				arrow.Field{Name: "name", Type: arrow.BinaryTypes.String, Nullable: true},
-				arrow.Field{Name: "related_analytics", Type: arrow.ListOf(
-					arrow.StructOf(
-						arrow.Field{Name: "category", Type: arrow.BinaryTypes.String, Nullable: true},
-						arrow.Field{Name: "desc", Type: arrow.BinaryTypes.String, Nullable: true},
-						arrow.Field{Name: "name", Type: arrow.BinaryTypes.String, Nullable: true},
-						arrow.Field{Name: "type", Type: arrow.BinaryTypes.String, Nullable: true},
-						arrow.Field{Name: "type_id", Type: arrow.PrimitiveTypes.Int32, Nullable: false},
-						arrow.Field{Name: "uid", Type: arrow.BinaryTypes.String, Nullable: true},
-						arrow.Field{Name: "version", Type: arrow.BinaryTypes.String, Nullable: true},
-					),
-				), Nullable: true},
-				arrow.Field{Name: "type", Type: arrow.BinaryTypes.String, Nullable: true},
-				arrow.Field{Name: "type_id", Type: arrow.PrimitiveTypes.Int32, Nullable: false},
-				arrow.Field{Name: "uid", Type: arrow.BinaryTypes.String, Nullable: true},
-				arrow.Field{Name: "version", Type: arrow.BinaryTypes.String, Nullable: true},
-			), Nullable: true,
+			arrow.Field{Name: "category", Type: arrow.BinaryTypes.String, Nullable: true},
+			arrow.Field{Name: "desc", Type: arrow.BinaryTypes.String, Nullable: true},
+			arrow.Field{Name: "name", Type: arrow.BinaryTypes.String, Nullable: true},
+			arrow.Field{Name: "related_analytics", Type: arrow.ListOf(
+				arrow.StructOf(
+					arrow.Field{Name: "category", Type: arrow.BinaryTypes.String, Nullable: true},
+					arrow.Field{Name: "desc", Type: arrow.BinaryTypes.String, Nullable: true},
+					arrow.Field{Name: "name", Type: arrow.BinaryTypes.String, Nullable: true},
+					arrow.Field{Name: "type", Type: arrow.BinaryTypes.String, Nullable: true},
+					arrow.Field{Name: "type_id", Type: arrow.PrimitiveTypes.Int32, Nullable: false},
+					arrow.Field{Name: "uid", Type: arrow.BinaryTypes.String, Nullable: true},
+					arrow.Field{Name: "version", Type: arrow.BinaryTypes.String, Nullable: true},
+				),
+			), Nullable: true},
+			arrow.Field{Name: "type", Type: arrow.BinaryTypes.String, Nullable: true},
+			arrow.Field{Name: "type_id", Type: arrow.PrimitiveTypes.Int32, Nullable: false},
+			arrow.Field{Name: "uid", Type: arrow.BinaryTypes.String, Nullable: true},
+			arrow.Field{Name: "version", Type: arrow.BinaryTypes.String, Nullable: true},
+		), Nullable: true,
 		},
 		{Name: "uid", Type: arrow.BinaryTypes.String, Nullable: true},
 	}, nil)

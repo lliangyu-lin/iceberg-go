@@ -22,6 +22,7 @@ import (
 	"io"
 	"maps"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -408,6 +409,55 @@ func (m *mergeAppendFiles) processManifests(manifests []iceberg.ManifestFile) ([
 	}
 
 	return append(result, unmergedDeleteManifests...), nil
+}
+
+type deleteFiles struct {
+	base *snapshotProducer
+
+	predicate     iceberg.BooleanExpression
+	caseSensitive bool
+}
+
+func newDeleteFilesProducer(op Operation, txn *Transaction, fs iceio.WriteFileIO, commitUUID *uuid.UUID, snapshotProps iceberg.Properties) *snapshotProducer {
+	prod := createSnapshotProducer(op, txn, fs, commitUUID, snapshotProps)
+	prod.producerImpl = &deleteFiles{
+		base:          prod,
+		predicate:     iceberg.AlwaysTrue{},
+		caseSensitive: true,
+	}
+
+	return prod
+}
+
+func (df deleteFiles) deleteByPredicate(predicate iceberg.BooleanExpression, caseSensitive bool) {
+	df.predicate = predicate
+	df.caseSensitive = caseSensitive
+}
+
+func (df deleteFiles) processManifests(manifests []iceberg.ManifestFile) ([]iceberg.ManifestFile, error) {
+	// no post processing
+	return manifests, nil
+}
+
+func (df deleteFiles) existingManifests() ([]iceberg.ManifestFile, error) {
+	schema := df.base.txn.tbl.Schema()
+
+	existing_manifests := make([]iceberg.ManifestFile, 0)
+
+	snapshot := df.base.txn.tbl.CurrentSnapshot()
+	manifestFiles, _ := snapshot.Manifests(df.base.io)
+	for _, manifestFile := range manifestFiles {
+		if manifestFile.ManifestContent() != iceberg.ManifestContentData {
+			existing_manifests = append(existing_manifests, manifestFile)
+			continue
+		}
+	}
+	return nil, nil
+}
+
+func (df deleteFiles) deletedEntries() ([]iceberg.ManifestEntry, error) {
+	//TODO implement me
+	panic("implement me")
 }
 
 type snapshotProducer struct {
