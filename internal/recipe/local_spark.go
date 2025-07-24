@@ -82,7 +82,7 @@ func ExecuteSpark(t *testing.T, scriptPath string, args ...string) (string, erro
 	}(cli)
 
 	filter := filters.NewArgs()
-	filter.Add("name", "/"+sparkContainer)
+	filter.Add("name", "/spark-iceberg")
 	containers, err := cli.ContainerList(t.Context(), container.ListOptions{
 		Filters: filter,
 	})
