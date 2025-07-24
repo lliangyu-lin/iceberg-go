@@ -92,7 +92,7 @@ func ExecuteSpark(t *testing.T, scriptPath string, args ...string) (string, erro
 
 	var sparkContainerID string
 	for _, c := range containers {
-		fmt.Printf("lables: %v\n", c.Labels)
+		fmt.Printf("names: %v\n", c.Names)
 		if c.Image == "pyiceberg-spark" {
 			sparkContainerID = c.ID
 
