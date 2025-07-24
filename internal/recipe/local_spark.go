@@ -90,6 +90,7 @@ func ExecuteSpark(t *testing.T, scriptPath string, args ...string) (string, erro
 		for _, name := range c.Names {
 			if strings.Contains(name, sparkContainer) {
 				sparkContainerID = c.ID
+
 				break
 			}
 		}
