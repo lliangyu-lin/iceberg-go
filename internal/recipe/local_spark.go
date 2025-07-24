@@ -20,7 +20,6 @@ package recipe
 import (
 	"bytes"
 	"fmt"
-	"github.com/docker/docker/api/types/filters"
 	"io"
 	"os"
 	"testing"
@@ -28,6 +27,7 @@ import (
 	_ "embed"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 	"github.com/testcontainers/testcontainers-go/modules/compose"
 )
@@ -81,31 +81,17 @@ func ExecuteSpark(t *testing.T, scriptPath string, args ...string) (string, erro
 		}
 	}(cli)
 
-	//containers, err := cli.ContainerList(t.Context(), container.ListOptions{
-	//	All: true,
-	//})
-	//
-	//var sparkContainerID string
-	//for _, c := range containers {
-	//	for _, name := range c.Names {
-	//		fmt.Printf("container names: %s\n", name)
-	//		if strings.Contains(name, sparkContainer) {
-	//			sparkContainerID = c.ID
-	//			break
-	//		}
-	//	}
-	//	if sparkContainerID != "" {
-	//		break
-	//	}
-	//}
-
 	filter := filters.NewArgs()
-	filter.Add("name", "/spark-iceberg")
+	filter.Add("name", "/"+sparkContainer)
 	containers, err := cli.ContainerList(t.Context(), container.ListOptions{
 		Filters: filter,
 	})
+
 	if len(containers) != 1 {
 		return "", fmt.Errorf("unable to find container %s", sparkContainer)
+	}
+	if err != nil {
+		return "", err
 	}
 
 	sparkContainerId := containers[0].ID
@@ -125,6 +111,9 @@ func ExecuteSpark(t *testing.T, scriptPath string, args ...string) (string, erro
 	defer attachResp.Close()
 
 	output, err := io.ReadAll(attachResp.Reader)
+	if err != nil {
+		return "", err
+	}
 	fmt.Printf("%s\n", string(output))
 
 	inspect, err := cli.ContainerExecInspect(t.Context(), response.ID)
