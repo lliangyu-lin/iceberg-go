@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"testing"
 
 	_ "embed"
@@ -92,11 +93,12 @@ func ExecuteSpark(t *testing.T, scriptPath string, args ...string) (string, erro
 
 	var sparkContainerID string
 	for _, c := range containers {
-		fmt.Printf("names: %v\n", c.Names)
-		if c.Image == "pyiceberg-spark" {
-			sparkContainerID = c.ID
+		for _, name := range c.Names {
+			if strings.Contains(name, sparkContainer) {
+				sparkContainerID = c.ID
 
-			break
+				break
+			}
 		}
 	}
 	if sparkContainerID == "" {
