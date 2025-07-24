@@ -69,7 +69,7 @@ func Start(t *testing.T) (*compose.DockerCompose, error) {
 }
 
 func ExecuteSpark(t *testing.T, scriptPath string, args ...string) (string, error) {
-	cli, err := client.NewClientWithOpts(client.FromEnv)
+	cli, err := client.NewClientWithOpts(nil)
 	if err != nil {
 		return "", err
 	}
