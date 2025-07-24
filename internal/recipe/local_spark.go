@@ -84,9 +84,14 @@ func ExecuteSpark(t *testing.T, scriptPath string, args ...string) (string, erro
 	containers, err := cli.ContainerList(t.Context(), container.ListOptions{
 		All: true,
 	})
+	if err != nil {
+		return "", err
+	}
 
 	var sparkContainerID string
 	for _, c := range containers {
+		fmt.Printf("containers: %s\n", c.Names)
+		fmt.Printf("image: %s\n", c.Image)
 		for _, name := range c.Names {
 			if strings.Contains(name, sparkContainer) {
 				sparkContainerID = c.ID
