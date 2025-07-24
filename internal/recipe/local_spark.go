@@ -69,10 +69,10 @@ func Start(t *testing.T) (*compose.DockerCompose, error) {
 	return stack, nil
 }
 
-func ExecuteSpark(t *testing.T, scriptPath string, args ...string) error {
+func ExecuteSpark(t *testing.T, scriptPath string, args ...string) (string, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer func(cli *client.Client) {
 		err := cli.Close()
@@ -87,7 +87,7 @@ func ExecuteSpark(t *testing.T, scriptPath string, args ...string) error {
 		Filters: filter,
 	})
 	if len(containers) != 1 {
-		return fmt.Errorf("no container found with name %s", sparkContainer)
+		return "", fmt.Errorf("unable to find container %s", sparkContainer)
 	}
 
 	sparkContainerId := containers[0].ID
@@ -97,12 +97,12 @@ func ExecuteSpark(t *testing.T, scriptPath string, args ...string) error {
 		AttachStderr: true,
 	})
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	attachResp, err := cli.ContainerExecAttach(t.Context(), response.ID, container.ExecAttachOptions{})
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer attachResp.Close()
 
@@ -111,11 +111,11 @@ func ExecuteSpark(t *testing.T, scriptPath string, args ...string) error {
 
 	inspect, err := cli.ContainerExecInspect(t.Context(), response.ID)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if inspect.ExitCode != 0 {
-		return fmt.Errorf("failed to execute script with exit code: %d", inspect.ExitCode)
+		return "", fmt.Errorf("failed to execute script with exit code: %d", inspect.ExitCode)
 	}
 
-	return nil
+	return string(output), nil
 }
