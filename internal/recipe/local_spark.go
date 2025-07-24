@@ -81,10 +81,9 @@ func ExecuteSpark(t *testing.T, scriptPath string, args ...string) (string, erro
 		}
 	}(cli)
 
-	containers, err := cli.ContainerList(t.Context(), container.ListOptions{})
-	if err != nil {
-		return "", err
-	}
+	containers, err := cli.ContainerList(t.Context(), container.ListOptions{
+		All: true,
+	})
 
 	var sparkContainerID string
 	for _, c := range containers {
