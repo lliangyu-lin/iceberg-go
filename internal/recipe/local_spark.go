@@ -20,7 +20,6 @@ package recipe
 import (
 	"bytes"
 	"fmt"
-	"github.com/docker/docker/api/types/filters"
 	"io"
 	"os"
 	"testing"
@@ -28,6 +27,7 @@ import (
 	_ "embed"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 	"github.com/testcontainers/testcontainers-go/modules/compose"
 )
