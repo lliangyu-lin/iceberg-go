@@ -85,9 +85,9 @@ func ExecuteSpark(t *testing.T, scriptPath string, args ...string) (string, erro
 	}(cli)
 
 	var sparkContainerID string
-
 	if _, ok := os.LookupEnv("SPARK_CONTAINER_ID"); ok {
 		sparkContainerID = os.Getenv("SPARK_CONTAINER_ID")
+		fmt.Printf("from env var: %s\n", sparkContainerID)
 	} else {
 		filter := filters.NewArgs(filters.Arg("name", sparkContainer))
 		containers, err := cli.ContainerList(t.Context(), container.ListOptions{
