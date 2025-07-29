@@ -823,11 +823,11 @@ func (t *TableWritingTestSuite) TestDelete() {
 	defer contents.Release()
 
 	t.EqualValues(5, contents.NumRows())
+	fmt.Printf("%s", contents.String())
 
-	//deleteFilter := iceberg.BooleanExpression()
-
-	iceberg.EqualTo(iceberg.Reference("bar"), int32(1))
-	//tx.Delete(t.ctx)
+	deleteFilter := iceberg.EqualTo(iceberg.Reference("baz"), int32(123))
+	err = tx.Delete(t.ctx, deleteFilter, nil, true)
+	t.Require().NoError(err)
 }
 
 type mockedCatalog struct{}
