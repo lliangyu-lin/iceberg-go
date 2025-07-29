@@ -208,6 +208,10 @@ func filterRecords(ctx context.Context, recordFilter expr.Expression) recProcess
 	}
 }
 
+//func applyFilter(ctx context.Context, ) {
+//
+//}
+
 type arrowScan struct {
 	fs              iceio.IO
 	metadata        Metadata

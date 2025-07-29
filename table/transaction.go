@@ -22,6 +22,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/apache/arrow-go/v18/arrow/compute/exprs"
+	"github.com/apache/iceberg-go/table/substrait"
 	"runtime"
 	"slices"
 	"sync"
@@ -208,12 +210,23 @@ func (t *Transaction) Delete(ctx context.Context, deleteFilter iceberg.BooleanEx
 	// check if any data file require a rewrite
 	if df.rewriteNeeded() {
 		schema := t.tbl.Schema()
-		boundDeleteFilter, err := iceberg.BindExpr(schema, deleteFilter, caseSensitive)
+		_, err := iceberg.BindExpr(schema, deleteFilter, caseSensitive)
 		if err != nil {
 			return err
 		}
+
+		//preserveRowFilter := iceberg.NewNot(deleteFilter)
+		//_, err = iceberg.BindExpr(schema, preserveRowFilter, caseSensitive)
+		//if err != nil {
+		//	return err
+		//}
 		preserveRowFilter := iceberg.NewNot(deleteFilter)
 		boundRowFilter, err := iceberg.BindExpr(schema, preserveRowFilter, caseSensitive)
+		if err != nil {
+			return err
+		}
+
+		extSet, recordFilter, err := substrait.ConvertExpr(schema, boundRowFilter, caseSensitive)
 		if err != nil {
 			return err
 		}
@@ -236,40 +249,48 @@ func (t *Transaction) Delete(ctx context.Context, deleteFilter iceberg.BooleanEx
 				metadata:        scan.metadata,
 				fs:              fs,
 				projectedSchema: schema,
-				boundRowFilter:  boundRowFilter,
+				boundRowFilter:  iceberg.AlwaysTrue{},
 				caseSensitive:   scan.caseSensitive,
 				rowLimit:        scan.limit,
 				options:         scan.options,
 				concurrency:     scan.concurrency,
 			}).GetRecords(ctx, []FileScanTask{originalFile})
-			arrTblAll, err := toArrowTableFromRecords(arrSchema, allRecords)
 			if err != nil {
 				return err
 			}
 
-			arrSchema, allRecords, err = (&arrowScan{
-				metadata:        scan.metadata,
-				fs:              fs,
-				projectedSchema: schema,
-				boundRowFilter:  boundDeleteFilter,
-				caseSensitive:   scan.caseSensitive,
-				rowLimit:        scan.limit,
-				options:         scan.options,
-				concurrency:     scan.concurrency,
-			}).GetRecords(ctx, []FileScanTask{originalFile})
-			arrTblFiltered, err := toArrowTableFromRecords(arrSchema, allRecords)
-			if err != nil {
-				return err
+			filterFn := filterRecords(
+				exprs.WithExtensionIDSet(ctx, exprs.NewExtensionSetDefault(*extSet)),
+				recordFilter,
+			)
+			allRecordCnt := 0
+			records := make([]arrow.Record, 0)
+			for rec, err := range allRecords {
+				allRecordCnt += 1
+				if err != nil {
+					return err
+				}
+				defer rec.Release()
+
+				filtered, err := filterFn(rec)
+				if err != nil {
+					return err
+				}
+				if filtered != nil {
+					records = append(records, rec)
+				}
 			}
 
-			if arrTblFiltered.NumRows() == 0 {
+			if allRecordCnt == 0 || allRecordCnt == len(records) {
 				replacement = append(replacement, replacedFiles{
 					originalFile.File,
 					[]iceberg.DataFile{},
 				})
-			} else if arrTblAll.NumRows() != arrTblFiltered.NumRows() {
+			} else if allRecordCnt != len(records) {
 				replaceFiles := make([]iceberg.DataFile, 0)
-				rdr := array.NewTableReader(arrTblFiltered, -1)
+				arrTbl := array.NewTableFromRecords(arrSchema, records)
+				defer arrTbl.Release()
+				rdr := array.NewTableReader(arrTbl, -1)
 				defer rdr.Release()
 				itr := recordsToDataFiles(ctx, t.tbl.Location(), t.meta, recordWritingArgs{
 					sc:        arrSchema,
@@ -298,6 +319,12 @@ func (t *Transaction) Delete(ctx context.Context, deleteFilter iceberg.BooleanEx
 					overwriteSnapshot.appendDataFile(replaceFile)
 				}
 			}
+			updates, reqs, err := overwriteSnapshot.commit()
+			if err != nil {
+				return err
+			}
+
+			return t.apply(updates, reqs)
 		}
 	}
 	return nil

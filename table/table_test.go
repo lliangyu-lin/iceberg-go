@@ -828,6 +828,19 @@ func (t *TableWritingTestSuite) TestDelete() {
 	deleteFilter := iceberg.EqualTo(iceberg.Reference("baz"), int32(123))
 	err = tx.Delete(t.ctx, deleteFilter, nil, true)
 	t.Require().NoError(err)
+
+	stagedTbl, err = tx.StagedTable()
+	t.Require().NoError(err)
+
+	scan, err = stagedTbl.NewTransaction().Scan()
+	t.Require().NoError(err)
+
+	contents, err = scan.ToArrowTable(context.Background())
+	t.Require().NoError(err)
+	defer contents.Release()
+
+	t.EqualValues(0, contents.NumRows())
+	fmt.Printf("%s", contents.String())
 }
 
 type mockedCatalog struct{}
