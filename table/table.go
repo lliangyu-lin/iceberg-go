@@ -112,11 +112,6 @@ func (t Table) Append(ctx context.Context, rdr array.RecordReader, snapshotProps
 	return txn.Commit(ctx)
 }
 
-type DeleteFilter struct {
-	Expr iceberg.BooleanExpression
-	Raw  string
-}
-
 // Delete is a shortcut for NewTransaction().Delete() and then committing the transaction
 func (t Table) Delete(ctx context.Context, deleteFilter iceberg.BooleanExpression, snapshotProps iceberg.Properties, caseSensitive bool) (*Table, error) {
 	txn := t.NewTransaction()

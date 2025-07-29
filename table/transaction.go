@@ -185,6 +185,11 @@ func (t *Transaction) Append(ctx context.Context, rdr array.RecordReader, snapsh
 	return t.apply(updates, reqs)
 }
 
+type replacedFiles struct {
+	originalFile iceberg.DataFile
+	replaceFiles []iceberg.DataFile
+}
+
 func (t *Transaction) Delete(ctx context.Context, deleteFilter iceberg.BooleanExpression, snapshotProps iceberg.Properties, caseSensitive bool) error {
 
 	if deleteMode := t.tbl.metadata.Properties().Get(DeleteMode, DeleteModeDefault); deleteMode == DeleteModeMergeOnRead {
@@ -200,6 +205,101 @@ func (t *Transaction) Delete(ctx context.Context, deleteFilter iceberg.BooleanEx
 	df := deleteSnapshot.producerImpl.(*deleteFiles)
 	df.deleteByPredicate(deleteFilter, caseSensitive)
 
+	// check if any data file require a rewrite
+	if df.rewriteNeeded() {
+		schema := t.tbl.Schema()
+		boundDeleteFilter, err := iceberg.BindExpr(schema, deleteFilter, caseSensitive)
+		if err != nil {
+			return err
+		}
+		preserveRowFilter := iceberg.NewNot(deleteFilter)
+		boundRowFilter, err := iceberg.BindExpr(schema, preserveRowFilter, caseSensitive)
+		if err != nil {
+			return err
+		}
+
+		scan, err := t.Scan(WithRowFilter(deleteFilter), WithCaseSensitive(caseSensitive))
+		if err != nil {
+			return err
+		}
+
+		files, err := scan.PlanFiles(ctx)
+		if err != nil {
+			return err
+		}
+
+		replacement := make([]replacedFiles, 0)
+		commitUuid := uuid.New()
+
+		for _, originalFile := range files {
+			arrSchema, allRecords, err := (&arrowScan{
+				metadata:        scan.metadata,
+				fs:              fs,
+				projectedSchema: schema,
+				boundRowFilter:  boundRowFilter,
+				caseSensitive:   scan.caseSensitive,
+				rowLimit:        scan.limit,
+				options:         scan.options,
+				concurrency:     scan.concurrency,
+			}).GetRecords(ctx, []FileScanTask{originalFile})
+			arrTblAll, err := toArrowTableFromRecords(arrSchema, allRecords)
+			if err != nil {
+				return err
+			}
+
+			arrSchema, allRecords, err = (&arrowScan{
+				metadata:        scan.metadata,
+				fs:              fs,
+				projectedSchema: schema,
+				boundRowFilter:  boundDeleteFilter,
+				caseSensitive:   scan.caseSensitive,
+				rowLimit:        scan.limit,
+				options:         scan.options,
+				concurrency:     scan.concurrency,
+			}).GetRecords(ctx, []FileScanTask{originalFile})
+			arrTblFiltered, err := toArrowTableFromRecords(arrSchema, allRecords)
+			if err != nil {
+				return err
+			}
+
+			if arrTblFiltered.NumRows() == 0 {
+				replacement = append(replacement, replacedFiles{
+					originalFile.File,
+					[]iceberg.DataFile{},
+				})
+			} else if arrTblAll.NumRows() != arrTblFiltered.NumRows() {
+				replaceFiles := make([]iceberg.DataFile, 0)
+				rdr := array.NewTableReader(arrTblFiltered, -1)
+				defer rdr.Release()
+				itr := recordsToDataFiles(ctx, t.tbl.Location(), t.meta, recordWritingArgs{
+					sc:        arrSchema,
+					itr:       array.IterFromReader(rdr),
+					fs:        fs.(io.WriteFileIO),
+					writeUUID: &commitUuid,
+				})
+				for df, err := range itr {
+					if err != nil {
+						return err
+					}
+					replaceFiles = append(replaceFiles, df)
+				}
+				replacement = append(replacement, replacedFiles{
+					originalFile.File,
+					replaceFiles,
+				})
+			}
+		}
+
+		if len(replacement) > 0 {
+			overwriteSnapshot := t.updateSnapshot(fs, snapshotProps).mergeOverwrite(&commitUuid)
+			for _, rf := range replacement {
+				overwriteSnapshot.deleteDataFile(rf.originalFile)
+				for _, replaceFile := range rf.replaceFiles {
+					overwriteSnapshot.appendDataFile(replaceFile)
+				}
+			}
+		}
+	}
 	return nil
 }
 

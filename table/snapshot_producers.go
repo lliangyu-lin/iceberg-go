@@ -22,7 +22,6 @@ import (
 	"io"
 	"maps"
 	"slices"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -440,7 +439,7 @@ func (df deleteFiles) processManifests(manifests []iceberg.ManifestFile) ([]iceb
 }
 
 func (df deleteFiles) existingManifests() ([]iceberg.ManifestFile, error) {
-	schema := df.base.txn.tbl.Schema()
+	_ = df.base.txn.tbl.Schema()
 
 	existing_manifests := make([]iceberg.ManifestFile, 0)
 
@@ -458,6 +457,10 @@ func (df deleteFiles) existingManifests() ([]iceberg.ManifestFile, error) {
 func (df deleteFiles) deletedEntries() ([]iceberg.ManifestEntry, error) {
 	//TODO implement me
 	panic("implement me")
+}
+
+func (df deleteFiles) rewriteNeeded() bool {
+	return true
 }
 
 type snapshotProducer struct {
