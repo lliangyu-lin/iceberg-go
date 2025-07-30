@@ -415,14 +415,23 @@ type deleteFiles struct {
 
 	predicate     iceberg.BooleanExpression
 	caseSensitive bool
+
+	computed        bool
+	keepManifests   []iceberg.ManifestFile
+	removedEntries  []iceberg.ManifestEntry
+	partialRewrites bool
 }
 
 func newDeleteFilesProducer(op Operation, txn *Transaction, fs iceio.WriteFileIO, commitUUID *uuid.UUID, snapshotProps iceberg.Properties) *snapshotProducer {
 	prod := createSnapshotProducer(op, txn, fs, commitUUID, snapshotProps)
 	prod.producerImpl = &deleteFiles{
-		base:          prod,
-		predicate:     iceberg.AlwaysFalse{},
-		caseSensitive: true,
+		base:            prod,
+		predicate:       iceberg.AlwaysFalse{},
+		caseSensitive:   true,
+		computed:        false,
+		keepManifests:   make([]iceberg.ManifestFile, 0),
+		removedEntries:  make([]iceberg.ManifestEntry, 0),
+		partialRewrites: false,
 	}
 
 	return prod
@@ -459,19 +468,20 @@ func (df deleteFiles) buildManifestEvaluator(specID int) (ManifestEvaluator, err
 }
 
 func (df deleteFiles) computeDeletes() error {
+	df.computed = true
 	schema := df.base.txn.tbl.Schema()
-	keepManifests := make([]iceberg.ManifestFile, 0)
-	totalDeletedEntries := make([]iceberg.ManifestEntry, 0)
-	partialRewritesNeeded := false
 
 	manifestEvaluators := make(map[int32]ManifestEvaluator)
 	strictMetricsEvaluator, err := newStrictMetricsEvaluator(schema, df.predicate, df.caseSensitive, false)
+	if err != nil {
+		return nil
+	}
 	inclusiveMetricsEvaluator, err := newInclusiveMetricsEvaluator(schema, df.predicate, df.caseSensitive, false)
 	if err != nil {
 		return nil
 	}
 
-	snapshot := df.base.txn.tbl.CurrentSnapshot()
+	snapshot := df.base.txn.meta.currentSnapshot()
 	manifestFiles, err := snapshot.Manifests(df.base.io)
 	if err != nil {
 		return err
@@ -483,7 +493,7 @@ func (df deleteFiles) computeDeletes() error {
 				return err
 			}
 			if !containMatch {
-				keepManifests = append(keepManifests, manifestFile)
+				df.keepManifests = append(df.keepManifests, manifestFile)
 			} else {
 				deletedEntries := make([]iceberg.ManifestEntry, 0)
 				keepEntries := make([]iceberg.ManifestEntry, 0)
@@ -492,14 +502,57 @@ func (df deleteFiles) computeDeletes() error {
 					return err
 				}
 				for _, entry := range entries {
+					ok, err := strictMetricsEvaluator(entry.DataFile())
+					if err != nil {
+						return err
+					}
+					if ok == rowsMustMatch {
+						deletedEntries = append(deletedEntries, df.copyWithNewStatus(entry, iceberg.EntryStatusDELETED))
+					} else {
+						keepEntries = append(keepEntries, df.copyWithNewStatus(entry, iceberg.EntryStatusEXISTING))
+						ok, err := inclusiveMetricsEvaluator(entry.DataFile())
+						if err != nil {
+							return err
+						}
+						if ok == rowsMightNotMatch {
+							df.partialRewrites = true
+						}
+					}
+				}
 
+				if len(deletedEntries) > 0 {
+					df.removedEntries = append(df.removedEntries, deletedEntries...)
+					if len(keepEntries) > 0 {
+						spec := df.base.txn.tbl.Metadata().PartitionSpecs()[manifestFile.PartitionSpecID()]
+						wr, path, counter, err := df.base.newManifestWriter(spec)
+						if err != nil {
+							return err
+						}
+						for _, entry := range keepEntries {
+							err = wr.Add(entry)
+							if err != nil {
+								return err
+							}
+						}
+						if err = wr.Close(); err != nil {
+							return err
+						}
+						mf, err := wr.ToManifestFile(path, counter.Count)
+						if err != nil {
+							return err
+						}
+						df.keepManifests = append(df.keepManifests, mf)
+					}
+				} else {
+					df.keepManifests = append(df.keepManifests, manifestFile)
 				}
 			}
-
 		} else {
-			keepManifests = append(keepManifests, manifestFile)
+			df.keepManifests = append(df.keepManifests, manifestFile)
 		}
 	}
+
+	return nil
 }
 
 func (df deleteFiles) processManifests(manifests []iceberg.ManifestFile) ([]iceberg.ManifestFile, error) {
@@ -508,28 +561,28 @@ func (df deleteFiles) processManifests(manifests []iceberg.ManifestFile) ([]iceb
 }
 
 func (df deleteFiles) existingManifests() ([]iceberg.ManifestFile, error) {
-	_ = df.base.txn.tbl.Schema()
-
-	existing_manifests := make([]iceberg.ManifestFile, 0)
-
-	snapshot := df.base.txn.tbl.CurrentSnapshot()
-	manifestFiles, _ := snapshot.Manifests(df.base.io)
-	for _, manifestFile := range manifestFiles {
-		if manifestFile.ManifestContent() != iceberg.ManifestContentData {
-			existing_manifests = append(existing_manifests, manifestFile)
-			continue
-		}
-	}
-	return nil, nil
+	return df.keepManifests, nil
 }
 
 func (df deleteFiles) deletedEntries() ([]iceberg.ManifestEntry, error) {
-	//TODO implement me
-	panic("implement me")
+	return df.removedEntries, nil
 }
 
 func (df deleteFiles) rewriteNeeded() bool {
-	return true
+	return df.partialRewrites
+}
+
+func (df deleteFiles) copyWithNewStatus(entry iceberg.ManifestEntry, status iceberg.ManifestEntryStatus) iceberg.ManifestEntry {
+	snapId := entry.SnapshotID()
+	seqNum := entry.SequenceNum()
+
+	return iceberg.NewManifestEntry(
+		status,
+		&snapId,
+		&seqNum,
+		entry.FileSequenceNum(),
+		entry.DataFile(),
+	)
 }
 
 type snapshotProducer struct {

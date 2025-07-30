@@ -206,6 +206,10 @@ func (t *Transaction) Delete(ctx context.Context, deleteFilter iceberg.BooleanEx
 	deleteSnapshot := t.updateSnapshot(fs, snapshotProps).delete()
 	df := deleteSnapshot.producerImpl.(*deleteFiles)
 	df.deleteByPredicate(deleteFilter, caseSensitive)
+	err = df.computeDeletes()
+	if err != nil {
+		return err
+	}
 
 	// check if any data file require a rewrite
 	if df.rewriteNeeded() {
@@ -215,11 +219,6 @@ func (t *Transaction) Delete(ctx context.Context, deleteFilter iceberg.BooleanEx
 			return err
 		}
 
-		//preserveRowFilter := iceberg.NewNot(deleteFilter)
-		//_, err = iceberg.BindExpr(schema, preserveRowFilter, caseSensitive)
-		//if err != nil {
-		//	return err
-		//}
 		preserveRowFilter := iceberg.NewNot(deleteFilter)
 		boundRowFilter, err := iceberg.BindExpr(schema, preserveRowFilter, caseSensitive)
 		if err != nil {
