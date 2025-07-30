@@ -421,7 +421,7 @@ func newDeleteFilesProducer(op Operation, txn *Transaction, fs iceio.WriteFileIO
 	prod := createSnapshotProducer(op, txn, fs, commitUUID, snapshotProps)
 	prod.producerImpl = &deleteFiles{
 		base:          prod,
-		predicate:     iceberg.AlwaysTrue{},
+		predicate:     iceberg.AlwaysFalse{},
 		caseSensitive: true,
 	}
 
@@ -431,6 +431,75 @@ func newDeleteFilesProducer(op Operation, txn *Transaction, fs iceio.WriteFileIO
 func (df deleteFiles) deleteByPredicate(predicate iceberg.BooleanExpression, caseSensitive bool) {
 	df.predicate = predicate
 	df.caseSensitive = caseSensitive
+}
+
+func (df deleteFiles) buildPartitionProjection(specID int) (iceberg.BooleanExpression, error) {
+	schema := df.base.txn.tbl.Schema()
+	spec := df.base.txn.tbl.Metadata().PartitionSpecs()[specID]
+	project := newInclusiveProjection(schema, spec, df.caseSensitive)
+	partitionFilter, err := project(df.predicate)
+	if err != nil {
+		return nil, err
+	}
+	return partitionFilter, nil
+}
+
+func (df deleteFiles) partitionFilters() *keyDefaultMap[int, iceberg.BooleanExpression] {
+	return newKeyDefaultMapWrapErr(df.buildPartitionProjection)
+}
+
+func (df deleteFiles) buildManifestEvaluator(specID int) (ManifestEvaluator, error) {
+	spec := df.base.txn.tbl.metadata.PartitionSpecs()[specID]
+	schema := df.base.txn.tbl.metadata.CurrentSchema()
+	return newManifestEvaluator(
+		spec,
+		schema,
+		df.partitionFilters().Get(specID),
+		df.caseSensitive)
+}
+
+func (df deleteFiles) computeDeletes() error {
+	schema := df.base.txn.tbl.Schema()
+	keepManifests := make([]iceberg.ManifestFile, 0)
+	totalDeletedEntries := make([]iceberg.ManifestEntry, 0)
+	partialRewritesNeeded := false
+
+	manifestEvaluators := make(map[int32]ManifestEvaluator)
+	strictMetricsEvaluator, err := newStrictMetricsEvaluator(schema, df.predicate, df.caseSensitive, false)
+	inclusiveMetricsEvaluator, err := newInclusiveMetricsEvaluator(schema, df.predicate, df.caseSensitive, false)
+	if err != nil {
+		return nil
+	}
+
+	snapshot := df.base.txn.tbl.CurrentSnapshot()
+	manifestFiles, err := snapshot.Manifests(df.base.io)
+	if err != nil {
+		return err
+	}
+	for _, manifestFile := range manifestFiles {
+		if manifestFile.ManifestContent() == iceberg.ManifestContentData {
+			containMatch, err := manifestEvaluators[manifestFile.PartitionSpecID()](manifestFile)
+			if err != nil {
+				return err
+			}
+			if !containMatch {
+				keepManifests = append(keepManifests, manifestFile)
+			} else {
+				deletedEntries := make([]iceberg.ManifestEntry, 0)
+				keepEntries := make([]iceberg.ManifestEntry, 0)
+				entries, err := manifestFile.FetchEntries(df.base.io, true)
+				if err != nil {
+					return err
+				}
+				for _, entry := range entries {
+
+				}
+			}
+
+		} else {
+			keepManifests = append(keepManifests, manifestFile)
+		}
+	}
 }
 
 func (df deleteFiles) processManifests(manifests []iceberg.ManifestFile) ([]iceberg.ManifestFile, error) {
