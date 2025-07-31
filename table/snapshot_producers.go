@@ -442,7 +442,7 @@ func (df deleteFiles) deleteByPredicate(predicate iceberg.BooleanExpression, cas
 	df.caseSensitive = caseSensitive
 }
 
-func (df deleteFiles) buildPartitionProjection(specID int) (iceberg.BooleanExpression, error) {
+func (df deleteFiles) buildPartitionProjection(specID int32) (iceberg.BooleanExpression, error) {
 	schema := df.base.txn.tbl.Schema()
 	spec := df.base.txn.tbl.Metadata().PartitionSpecs()[specID]
 	project := newInclusiveProjection(schema, spec, df.caseSensitive)
@@ -453,11 +453,11 @@ func (df deleteFiles) buildPartitionProjection(specID int) (iceberg.BooleanExpre
 	return partitionFilter, nil
 }
 
-func (df deleteFiles) partitionFilters() *keyDefaultMap[int, iceberg.BooleanExpression] {
+func (df deleteFiles) partitionFilters() *keyDefaultMap[int32, iceberg.BooleanExpression] {
 	return newKeyDefaultMapWrapErr(df.buildPartitionProjection)
 }
 
-func (df deleteFiles) buildManifestEvaluator(specID int) (ManifestEvaluator, error) {
+func (df deleteFiles) buildManifestEvaluator(specID int32) (ManifestEvaluator, error) {
 	spec := df.base.txn.tbl.metadata.PartitionSpecs()[specID]
 	schema := df.base.txn.tbl.metadata.CurrentSchema()
 	return newManifestEvaluator(
@@ -471,7 +471,7 @@ func (df deleteFiles) computeDeletes() error {
 	df.computed = true
 	schema := df.base.txn.tbl.Schema()
 
-	manifestEvaluators := make(map[int32]ManifestEvaluator)
+	manifestEvaluators := newKeyDefaultMapWrapErr(df.buildManifestEvaluator)
 	strictMetricsEvaluator, err := newStrictMetricsEvaluator(schema, df.predicate, df.caseSensitive, false)
 	if err != nil {
 		return nil
@@ -488,7 +488,7 @@ func (df deleteFiles) computeDeletes() error {
 	}
 	for _, manifestFile := range manifestFiles {
 		if manifestFile.ManifestContent() == iceberg.ManifestContentData {
-			containMatch, err := manifestEvaluators[manifestFile.PartitionSpecID()](manifestFile)
+			containMatch, err := manifestEvaluators.Get(manifestFile.PartitionSpecID())(manifestFile)
 			if err != nil {
 				return err
 			}
