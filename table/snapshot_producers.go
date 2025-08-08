@@ -410,6 +410,62 @@ func (m *mergeAppendFiles) processManifests(manifests []iceberg.ManifestFile) ([
 	return append(result, unmergedDeleteManifests...), nil
 }
 
+func newDeleteFilesProducer(op Operation, txn *Transaction, fs iceio.WriteFileIO, commitUUID *uuid.UUID, snapshotProps iceberg.Properties) *snapshotProducer {
+	prod := createSnapshotProducer(op, txn, fs, commitUUID, snapshotProps)
+	prod.producerImpl = &deleteFiles{base: prod}
+
+	return prod
+}
+
+type deleteFiles struct {
+	base *snapshotProducer
+
+	predicate     iceberg.BooleanExpression
+	caseSensitive bool
+
+	computed        bool
+	keepManifests   []iceberg.ManifestFile
+	removedEntries  []iceberg.ManifestEntry
+	partialRewrites bool
+}
+
+func (df *deleteFiles) buildPartitionProjection(specID int32) (iceberg.BooleanExpression, error) {
+	return nil, nil
+}
+
+func (df *deleteFiles) partitionFilters() *keyDefaultMap[int32, iceberg.BooleanExpression] {
+	return nil
+}
+
+func (df *deleteFiles) buildManifestEvaluator(specID int32) (func(iceberg.ManifestFile) (bool, error), error) {
+	return nil, nil
+}
+
+func (df *deleteFiles) deleteByPredicate(expr iceberg.BooleanExpression, caseSensitive bool) {
+
+}
+
+func (df *deleteFiles) copyWithNewStatus(entry iceberg.ManifestEntry, status iceberg.ManifestEntryStatus) iceberg.ManifestEntry {
+	return nil
+}
+
+func (df *deleteFiles) computeDeletes() error {
+	return nil
+}
+
+func (df *deleteFiles) processManifests(manifests []iceberg.ManifestFile) ([]iceberg.ManifestFile, error) {
+	return manifests, nil
+}
+
+func (df *deleteFiles) existingManifests() ([]iceberg.ManifestFile, error) {
+	existing := make([]iceberg.ManifestFile, 0)
+	return existing, nil
+}
+
+func (df *deleteFiles) deletedEntries() ([]iceberg.ManifestEntry, error) {
+	return nil, nil
+}
+
 type snapshotProducer struct {
 	producerImpl
 
